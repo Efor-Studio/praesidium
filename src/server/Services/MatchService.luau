@@ -70,11 +70,12 @@ local function countEstimatedWaveKills(waveDefinition)
 	return total
 end
 
-function MatchService.new(remotes, progressionService)
+function MatchService.new(remotes, progressionService, worldService)
 	local self = setmetatable({}, MatchService)
 
 	self.remotes = remotes
 	self.progressionService = progressionService
+	self.worldService = worldService
 	self.skillQueue = {}
 	self.placedBuildables = {
 		North = {},
@@ -296,6 +297,10 @@ function MatchService:_beginColdOpen()
 		return
 	end
 
+	if self.worldService then
+		self.worldService:beginLobby()
+	end
+
 	self.state.startedAt = os.clock()
 	self.state.nextWaveIndex = 1
 	self:_setPhase("ColdOpen", GameConfig.StandardMode.coldOpenSeconds)
@@ -318,6 +323,11 @@ function MatchService:_beginWave(waveIndex)
 	self.state.pendingReward = nil
 	self:_resetReadyFlags()
 	self:_setPhase("Combat", waveDefinition.combatSeconds)
+
+	if self.worldService then
+		self.worldService:beginWave(waveDefinition)
+	end
+
 	self:announce("wave_started", {
 		waveIndex = waveDefinition.index,
 		stage = waveDefinition.stage,
@@ -329,6 +339,11 @@ function MatchService:_beginPrepPhase(nextWaveIndex, secondsRemaining)
 	self.state.nextWaveIndex = nextWaveIndex
 	self:_resetReadyFlags()
 	self:_setPhase("Prep", secondsRemaining)
+
+	if self.worldService then
+		self.worldService:beginPrep(nextWaveIndex, self.state)
+	end
+
 	self:announce("prep_started", {
 		nextWaveIndex = nextWaveIndex,
 		secondsRemaining = secondsRemaining,
@@ -355,6 +370,11 @@ function MatchService:_beginRewardPhase(waveDefinition)
 
 	self.state.pendingReward = pendingReward
 	self:_setPhase(waveDefinition.isBossWave and "BossReward" or "Reward", 0)
+
+	if self.worldService then
+		self.worldService:beginReward(waveDefinition.isBossWave)
+	end
+
 	self:announce("reward_available", {
 		waveIndex = waveDefinition.index,
 		bossReward = waveDefinition.isBossWave,
@@ -371,7 +391,10 @@ function MatchService:_applyWaveClearRewards(waveDefinition)
 		self.progressionService:awardClassMastery(userId, playerState.loadout.classId, waveDefinition.isBossWave and 35 or 15)
 	end
 
-	self.state.scoreboard.enemiesDefeated += countEstimatedWaveKills(waveDefinition)
+	if not self.worldService then
+		self.state.scoreboard.enemiesDefeated += countEstimatedWaveKills(waveDefinition)
+	end
+
 	self:_markDirty()
 end
 
@@ -414,16 +437,21 @@ function MatchService:_completeRun(victory, reason)
 		result = victory and "Victory" or "Defeat",
 		reason = reason,
 	})
+
+	if self.worldService then
+		self.worldService:setRunResult(victory)
+	end
 end
 
 function MatchService:addPlayer(player)
 	local startingLoadout = LoadoutValidator.buildDefaultLoadout(GameConfig.DefaultLoadout.classId)
 	local startingScrap = GameConfig.Economy.starterScrap + self.progressionService:getCampUpgradeLevel(player.UserId, "QuartermasterHooks") * 10
+	local laneId = self:_chooseLaneForNewPlayer()
 
 	self.state.players[player.UserId] = {
 		userId = player.UserId,
 		name = player.Name,
-		laneId = self:_chooseLaneForNewPlayer(),
+		laneId = laneId,
 		loadout = startingLoadout,
 		scrap = startingScrap,
 		readyForNextWave = false,
@@ -436,6 +464,10 @@ function MatchService:addPlayer(player)
 		},
 	}
 
+	if self.worldService then
+		self.worldService:bindPlayer(player, laneId)
+	end
+
 	self:_markDirty()
 	self:replicateToPlayer(player)
 
@@ -445,6 +477,10 @@ function MatchService:addPlayer(player)
 end
 
 function MatchService:removePlayer(player)
+	if self.worldService then
+		self.worldService:removePlayer(player)
+	end
+
 	self.state.players[player.UserId] = nil
 	self:_markDirty()
 	self:refreshRewardState()
@@ -540,6 +576,14 @@ function MatchService:placeBuildable(player, request)
 		placedAt = os.clock(),
 	}
 
+	if self.worldService then
+		local ok, message = self.worldService:placeBuildable(buildRecord, buildableDefinition)
+
+		if not ok then
+			return false, message
+		end
+	end
+
 	playerState.scrap -= buildableDefinition.scrapCost
 	playerState.contribution.buildablesPlaced += 1
 	playerState.contribution.scrapSpent += buildableDefinition.scrapCost
@@ -575,6 +619,11 @@ function MatchService:chooseRewardCard(player, rewardCardId)
 	pendingReward.selectedByUserId[userIdKey] = rewardCardId
 	playerState.selectedRewardCardId = rewardCardId
 	table.insert(playerState.rewardCards, rewardCardId)
+
+	if self.worldService then
+		self.worldService:applyRewardCard(playerState, rewardCardId, self.state)
+	end
+
 	self:_markDirty()
 	self:refreshRewardState()
 
@@ -602,6 +651,19 @@ function MatchService:readyForNextWave(player)
 end
 
 function MatchService:step(deltaTime)
+	if self.worldService then
+		local worldChanged = self.worldService:step(deltaTime, self.state)
+
+		if worldChanged then
+			self:_markDirty()
+		end
+
+		if self.state.coreHealth <= 0 then
+			self:_completeRun(false, "The Praesidium Core collapsed.")
+			return
+		end
+	end
+
 	if self.state.phase == "Lobby" then
 		if next(self.state.players) ~= nil then
 			self:_beginColdOpen()
@@ -627,13 +689,23 @@ function MatchService:step(deltaTime)
 	end
 
 	if self.state.secondsRemaining > 0 then
+		if self.state.phase == "Combat" and self.worldService and self.worldService:isWaveResolved() then
+			self:_completeWave(self.state.waveIndex)
+		end
+
 		return
 	end
 
 	if self.state.phase == "ColdOpen" then
 		self:_beginWave(1)
 	elseif self.state.phase == "Combat" then
-		self:_completeWave(self.state.waveIndex)
+		if self.worldService then
+			if self.worldService:isWaveResolved() then
+				self:_completeWave(self.state.waveIndex)
+			end
+		else
+			self:_completeWave(self.state.waveIndex)
+		end
 	elseif self.state.phase == "Prep" then
 		self:_beginWave(self.state.nextWaveIndex)
 	end
@@ -651,12 +723,15 @@ function MatchService:flushSkillQueue()
 			arrayContains(playerState.loadout.equippedSkillIds, skillRequest.skillId)
 			or playerState.loadout.ultimateId == skillRequest.skillId
 		) then
-			playerState.contribution.skillActivations += 1
-			self.state.scoreboard.skillActivations += 1
+			local didApply = true
 
-			if skillRequest.skillId == "ScrapSnare" then
-				playerState.scrap += 3
-				self.state.scoreboard.scrapCollected += 3
+			if self.worldService then
+				didApply = self.worldService:applySkill(playerState, skillRequest.skillId, skillRequest.laneId or playerState.laneId, self.state)
+			end
+
+			if didApply then
+				playerState.contribution.skillActivations += 1
+				self.state.scoreboard.skillActivations += 1
 			end
 		end
 	end
@@ -666,6 +741,10 @@ function MatchService:flushSkillQueue()
 end
 
 function MatchService:refreshLanePressure()
+	if self.worldService then
+		return
+	end
+
 	local waveDefinition = self:_getWaveDefinition(self.state.waveIndex)
 	local pressureByLane = {
 		North = 0,
@@ -718,6 +797,11 @@ function MatchService:refreshRewardState()
 
 	if pendingReward.modifierId and not arrayContains(self.state.activeModifierIds, pendingReward.modifierId) then
 		table.insert(self.state.activeModifierIds, pendingReward.modifierId)
+
+		if self.worldService then
+			self.worldService:applyModifier(pendingReward.modifierId)
+		end
+
 		self:announce("modifier_applied", {
 			modifierId = pendingReward.modifierId,
 		})

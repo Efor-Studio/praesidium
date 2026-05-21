@@ -4,13 +4,18 @@ local MatterRuntime = require(script.Parent.Parent.ECS.MatterRuntime)
 local MatchService = require(script.Parent.Parent.Services.MatchService)
 local ProgressionService = require(script.Parent.Parent.Services.ProgressionService)
 local RemoteRegistry = require(script.Parent.Parent.Services.RemoteRegistry)
+local WorldService = require(script.Parent.Parent.Services.WorldService)
 
 local ServerBootstrap = {}
 
 function ServerBootstrap.start()
 	local remoteBundle = RemoteRegistry.create()
 	local progressionService = ProgressionService.new()
-	local matchService = MatchService.new(remoteBundle.remotes, progressionService)
+	local worldService = WorldService.new()
+	local matchService = MatchService.new(remoteBundle.remotes, progressionService, worldService)
+
+	worldService:start()
+	worldService:beginLobby()
 
 	local runtime = MatterRuntime.start({
 		matchService = matchService,
@@ -40,6 +45,7 @@ function ServerBootstrap.start()
 		progressionService = progressionService,
 		remoteBundle = remoteBundle,
 		runtime = runtime,
+		worldService = worldService,
 	}
 end
 

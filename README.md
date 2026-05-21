@@ -19,7 +19,8 @@ rojo serve
 - Shared content is fully data-driven under [`src/shared/Config`](./src/shared/Config).
 - Shared API contracts and validators live under [`src/shared/Networking`](./src/shared/Networking) and [`src/shared/Validation`](./src/shared/Validation).
 - The server owns match flow, loadouts, rewards, build validation, and replication under [`src/server`](./src/server).
-- The client bootstrap under [`src/client`](./src/client) now renders a placeholder HUD for lanes, squad state, rewards, build actions, and concept cards while still auto-submitting the default bootstrap loadout.
+- The runtime now generates a blockout battlefield with placeholder lanes, gates, core, starter defenses, enemy blocks, and build slots so the wave loop is watchable in-world.
+- The client bootstrap under [`src/client`](./src/client) stays lightweight: it auto-submits the default loadout and exposes a compact debug overlay plus hotkeys for lane focus, skills, ultimates, and build placement.
 - If `Matter` has not been installed yet, the server falls back to a heartbeat scheduler and emits a system notice in Studio.
 
 ## Main Gameplay Defaults
@@ -33,6 +34,6 @@ rojo serve
 
 ## Next Good Steps
 
-- Upgrade the placeholder HUD into a production-quality loadout, reward, and build flow with polished art, feedback, and input handling.
-- Turn simulated wave/lane pressure into live enemies, pickups, projectiles, and health systems.
-- Add map geometry, lane sockets, and actual authoritative build placement on world anchors.
+- Replace the blockout parts with stronger environment art, placeholder rigs, and clearer lane silhouettes without changing the simulation hooks.
+- Expand the combat sandbox with pickups, projectiles, lane-specific world telegraphs, and more visible build/skill feedback.
+- Upgrade the debug overlay into a production-quality loadout, reward, and build flow once the core MVP feel is locked in.
