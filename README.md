@@ -19,7 +19,7 @@ rojo serve
 - Shared content is fully data-driven under [`src/shared/Config`](./src/shared/Config).
 - Shared API contracts and validators live under [`src/shared/Networking`](./src/shared/Networking) and [`src/shared/Validation`](./src/shared/Validation).
 - The server owns match flow, loadouts, rewards, build validation, and replication under [`src/server`](./src/server).
-- The client bootstrap under [`src/client`](./src/client) is intentionally thin and currently auto-submits a bootstrap loadout plus auto-advances reward/prep phases until a real HUD is built.
+- The client bootstrap under [`src/client`](./src/client) now renders a placeholder HUD for lanes, squad state, rewards, build actions, and concept cards while still auto-submitting the default bootstrap loadout.
 - If `Matter` has not been installed yet, the server falls back to a heartbeat scheduler and emits a system notice in Studio.
 
 ## Main Gameplay Defaults
@@ -33,6 +33,6 @@ rojo serve
 
 ## Next Good Steps
 
-- Replace bootstrap autopilot with real loadout, reward, and build HUD flows.
+- Upgrade the placeholder HUD into a production-quality loadout, reward, and build flow with polished art, feedback, and input handling.
 - Turn simulated wave/lane pressure into live enemies, pickups, projectiles, and health systems.
 - Add map geometry, lane sockets, and actual authoritative build placement on world anchors.

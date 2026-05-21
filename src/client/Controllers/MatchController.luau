@@ -18,6 +18,10 @@ function MatchController.new(remotes)
 	self.lastReadyWaveIndex = -1
 	self.lastRewardChoiceKey = nil
 	self.lastStatusKey = nil
+	self.autoAdvancePrep = false
+	self.autoSelectRewards = false
+	self.snapshotListeners = {}
+	self.announcementListeners = {}
 
 	self:_connect()
 
@@ -71,6 +75,44 @@ function MatchController:readyForNextWave()
 	self.remotes[RemoteNames.ReadyForNextWave]:FireServer()
 end
 
+function MatchController:getLatestSnapshot()
+	return self.latestSnapshot
+end
+
+function MatchController:getLocalPlayerSnapshot(snapshot)
+	local latestSnapshot = snapshot or self.latestSnapshot
+
+	if not latestSnapshot then
+		return nil
+	end
+
+	return self:_getLocalPlayerSnapshot(latestSnapshot)
+end
+
+function MatchController:onSnapshot(listener)
+	table.insert(self.snapshotListeners, listener)
+
+	return function()
+		local index = table.find(self.snapshotListeners, listener)
+
+		if index then
+			table.remove(self.snapshotListeners, index)
+		end
+	end
+end
+
+function MatchController:onAnnouncement(listener)
+	table.insert(self.announcementListeners, listener)
+
+	return function()
+		local index = table.find(self.announcementListeners, listener)
+
+		if index then
+			table.remove(self.announcementListeners, index)
+		end
+	end
+end
+
 function MatchController:_getLocalPlayerSnapshot(snapshot)
 	for _, playerSnapshot in ipairs(snapshot.players) do
 		if playerSnapshot.userId == self.localPlayer.UserId then
@@ -104,15 +146,23 @@ function MatchController:_handleSnapshot(snapshot)
 	local localPlayerState = self:_getLocalPlayerSnapshot(snapshot)
 
 	if not localPlayerState then
+		for _, listener in ipairs(self.snapshotListeners) do
+			local ok, errorMessage = pcall(listener, snapshot)
+
+			if not ok then
+				warn(string.format("[Praesidium] Snapshot listener failed: %s", tostring(errorMessage)))
+			end
+		end
+
 		return
 	end
 
-	if snapshot.phase == "Prep" and not localPlayerState.readyForNextWave and self.lastReadyWaveIndex ~= snapshot.waveIndex then
+	if self.autoAdvancePrep and snapshot.phase == "Prep" and not localPlayerState.readyForNextWave and self.lastReadyWaveIndex ~= snapshot.waveIndex then
 		self.lastReadyWaveIndex = snapshot.waveIndex
 		self:readyForNextWave()
 	end
 
-	if (snapshot.phase == "Reward" or snapshot.phase == "BossReward") and snapshot.pendingReward then
+	if self.autoSelectRewards and (snapshot.phase == "Reward" or snapshot.phase == "BossReward") and snapshot.pendingReward then
 		local options = snapshot.pendingReward.optionsByUserId[tostring(self.localPlayer.UserId)]
 
 		if options and #options > 0 then
@@ -126,6 +176,14 @@ function MatchController:_handleSnapshot(snapshot)
 					warn(string.format("[Praesidium] Reward choice failed: %s", tostring(message)))
 				end
 			end
+		end
+	end
+
+	for _, listener in ipairs(self.snapshotListeners) do
+		local ok, errorMessage = pcall(listener, snapshot)
+
+		if not ok then
+			warn(string.format("[Praesidium] Snapshot listener failed: %s", tostring(errorMessage)))
 		end
 	end
 end
@@ -143,6 +201,14 @@ function MatchController:_handleAnnouncement(kind, payload)
 		print(string.format("[Praesidium] Run ended: %s", tostring(payload.result)))
 	elseif kind == "system_notice" then
 		warn(string.format("[Praesidium] %s", tostring(payload.message)))
+	end
+
+	for _, listener in ipairs(self.announcementListeners) do
+		local ok, errorMessage = pcall(listener, kind, payload)
+
+		if not ok then
+			warn(string.format("[Praesidium] Announcement listener failed: %s", tostring(errorMessage)))
+		end
 	end
 end
 

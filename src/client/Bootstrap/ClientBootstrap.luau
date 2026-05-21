@@ -2,6 +2,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RemoteManifest = require(Shared.Networking.RemoteManifest)
+local HudController = require(script.Parent.Parent.Controllers.HudController)
 local MatchController = require(script.Parent.Parent.Controllers.MatchController)
 
 local ClientBootstrap = {}
@@ -24,10 +25,12 @@ end
 function ClientBootstrap.start()
 	local remotes = collectRemotes()
 	local matchController = MatchController.new(remotes)
+	local hudController = HudController.new(matchController)
 
 	matchController:bootstrap()
 
 	return {
+		hudController = hudController,
 		matchController = matchController,
 	}
 end
