@@ -1,1 +1,3 @@
-print("Hello world, from server!")
+local ServerBootstrap = require(script.Bootstrap.ServerBootstrap)
+
+ServerBootstrap.start()
